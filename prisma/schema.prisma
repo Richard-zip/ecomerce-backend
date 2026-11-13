@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  CLIENTE
+  VENDEDOR
+}
+
+enum ProductStatus {
+  AVAILABLE
+  PAUSED
+  SOLD_OUT
+}
+
+enum ProductCondition {
+  NUEVO
+  COMO_NUEVO
+  USADO_BUENO
+  USADO_REGULAR
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  password  String
+  phone     String?
+  whatsapp  String?  // Número de WhatsApp para coordinar ventas
+  role      Role     @default(CLIENTE)
+  avatar    String?
+  career    String?  // Carrera universitaria
+  campus    String?  // Sede o campus universitario
+  resetToken        String?  // Código o token para recuperación de contraseña
+  resetTokenExpires DateTime? // Fecha y hora de expiración del código
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  products       Product[]       @relation("SellerProducts")
+  buyerOrders    Order[]         @relation("BuyerOrders")
+  sellerOrders   Order[]         @relation("SellerOrders")
+  reviewsGiven   Review[]        @relation("ReviewsGiven")
+  reviewsReceived Review[]       @relation("ReviewsReceived")
+
+  @@unique([email, role], name: "email_role")
+  @@map("users")
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("categories")
+}
+
+model Product {
+  id           String           @id @default(uuid())
+  title        String
+  description  String
+  price        Float
+  stock        Int              @default(1)
+  images       String[]         @default([])
+  condition    ProductCondition @default(NUEVO)
+  status       ProductStatus    @default(AVAILABLE)
+  meetingPoint String?          // Punto de encuentro en el campus (ej: Cafetería, Biblioteca)
+  
+  sellerId     String
+  seller       User             @relation("SellerProducts", fields: [sellerId], references: [id], onDelete: Cascade)
+  
+  categoryId   String
+  category     Category         @relation(fields: [categoryId], references: [id])
+
+  orderItems   OrderItem[]
+  reviews      Review[]
+
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@map("products")
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  orderNumber  Int         @default(autoincrement())
+  status       OrderStatus @default(PENDING)
+  totalAmount  Float
+  meetingPoint String?     // Lugar acordado en el campus para entrega
+  notes        String?     // Notas o instrucciones del cliente
+  
+  buyerId      String
+  buyer        User        @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  sellerId     String
+  seller       User        @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  items        OrderItem[]
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Float
+
+  createdAt DateTime @default(now())
+
+  @@map("order_items")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1 a 5 estrellas
+  comment   String?
+  
+  buyerId   String
+  buyer     User     @relation("ReviewsGiven", fields: [buyerId], references: [id], onDelete: Cascade)
+  
+  sellerId  String
+  seller    User     @relation("ReviewsReceived", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
