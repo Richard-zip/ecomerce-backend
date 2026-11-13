@@ -187,13 +187,16 @@ export class OrdersService {
     if (data.status === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
       return prisma.$transaction(async (tx) => {
         for (const item of order.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stock: { increment: item.quantity },
-              status: ProductStatus.AVAILABLE,
-            },
-          });
+          const productExists = await tx.product.findUnique({ where: { id: item.productId } });
+          if (productExists) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                stock: { increment: item.quantity },
+                status: ProductStatus.AVAILABLE,
+              },
+            });
+          }
         }
 
         return tx.order.update({
@@ -234,13 +237,16 @@ export class OrdersService {
 
     return prisma.$transaction(async (tx) => {
       for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { increment: item.quantity },
-            status: ProductStatus.AVAILABLE,
-          },
-        });
+        const productExists = await tx.product.findUnique({ where: { id: item.productId } });
+        if (productExists) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { increment: item.quantity },
+              status: ProductStatus.AVAILABLE,
+            },
+          });
+        }
       }
 
       return tx.order.update({

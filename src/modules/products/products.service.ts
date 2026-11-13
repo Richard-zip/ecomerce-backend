@@ -25,7 +25,7 @@ export class ProductsService {
         condition: data.condition,
         meetingPoint: data.meetingPoint?.trim() || null,
         sellerId,
-        status: ProductStatus.AVAILABLE,
+        status: data.stock > 0 ? ProductStatus.AVAILABLE : ProductStatus.SOLD_OUT,
       },
       include: {
         category: true,
@@ -48,8 +48,9 @@ export class ProductsService {
   async getProducts(filters: ProductQueryInput) {
     const { search, categoryId, condition, minPrice, maxPrice, sellerId, page, limit } = filters;
 
+    // Mostrar productos disponibles para el público (no pausados por el vendedor)
     const where: Prisma.ProductWhereInput = {
-      status: ProductStatus.AVAILABLE,
+      status: { not: ProductStatus.PAUSED },
     };
 
     if (search) {
@@ -179,6 +180,16 @@ export class ProductsService {
       }
     }
 
+    // Si se modifica el stock y no se envió un estado manual, reactivar si hay stock
+    let newStatus = data.status;
+    if (!newStatus && data.stock !== undefined) {
+      if (data.stock > 0) {
+        newStatus = ProductStatus.AVAILABLE;
+      } else {
+        newStatus = ProductStatus.SOLD_OUT;
+      }
+    }
+
     return prisma.product.update({
       where: { id },
       data: {
@@ -189,7 +200,7 @@ export class ProductsService {
         ...(data.images && { images: data.images }),
         ...(data.categoryId && { categoryId: data.categoryId }),
         ...(data.condition && { condition: data.condition }),
-        ...(data.status && { status: data.status }),
+        ...(newStatus && { status: newStatus }),
         ...(data.meetingPoint !== undefined && { meetingPoint: data.meetingPoint?.trim() || null }),
       },
       include: {
@@ -211,8 +222,22 @@ export class ProductsService {
       throw new AppError('No tienes permisos para eliminar este producto.', 403);
     }
 
-    await prisma.product.delete({
-      where: { id },
+    // Transacción para limpiar dependencias relacionadas (reseñas e items de órdenes) y permitir la eliminación segura
+    await prisma.$transaction(async (tx) => {
+      // 1. Eliminar reseñas asociadas
+      await tx.review.deleteMany({
+        where: { productId: id },
+      });
+
+      // 2. Eliminar items de pedidos asociados
+      await tx.orderItem.deleteMany({
+        where: { productId: id },
+      });
+
+      // 3. Eliminar el producto
+      await tx.product.delete({
+        where: { id },
+      });
     });
 
     return { message: 'Producto eliminado correctamente.' };
