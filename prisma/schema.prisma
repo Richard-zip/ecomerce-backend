@@ -37,7 +37,7 @@ enum OrderStatus {
 model User {
   id        String   @id @default(uuid())
   name      String
-  email     String
+  email     String   @unique
   password  String
   phone     String?
   whatsapp  String?  // Número de WhatsApp para coordinar ventas
@@ -57,7 +57,6 @@ model User {
   reviewsGiven   Review[]        @relation("ReviewsGiven")
   reviewsReceived Review[]       @relation("ReviewsReceived")
 
-  @@unique([email, role], name: "email_role")
   @@map("users")
 }
 
