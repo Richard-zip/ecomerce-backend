@@ -18,6 +18,7 @@ router.patch('/:id/cancel', authorizeRole(Role.CLIENTE), controller.cancelOrderB
 router.post('/reviews', authorizeRole(Role.CLIENTE), controller.createReview);
 
 // Rutas de vendedor (definidas antes de /:id para evitar colisiones)
+router.get('/seller/analytics', authorizeRole(Role.VENDEDOR), controller.getSellerAnalytics);
 router.get('/my/sales', authorizeRole(Role.VENDEDOR), controller.getSellerOrders);
 router.get('/seller', authorizeRole(Role.VENDEDOR), controller.getSellerOrders);
 router.get('/seller/orders', authorizeRole(Role.VENDEDOR), controller.getSellerOrders);

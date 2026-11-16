@@ -267,4 +267,183 @@ export class OrdersService {
       },
     });
   }
+
+  async getSellerAnalytics(sellerId: string) {
+    const [orders, products, reviews] = await Promise.all([
+      prisma.order.findMany({
+        where: { sellerId },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  images: true,
+                  price: true,
+                  stock: true,
+                  status: true,
+                  category: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.product.findMany({
+        where: { sellerId },
+        select: {
+          id: true,
+          title: true,
+          price: true,
+          stock: true,
+          status: true,
+          images: true,
+        },
+      }),
+      prisma.review.findMany({
+        where: { sellerId },
+        select: { rating: true, comment: true, createdAt: true },
+      }),
+    ]);
+
+    // Métricas de pedidos
+    const totalOrders = orders.length;
+    const ordersByStatus = {
+      PENDING: 0,
+      CONFIRMED: 0,
+      DELIVERED: 0,
+      CANCELLED: 0,
+    };
+
+    let totalDeliveredRevenue = 0;
+    let potentialRevenue = 0;
+
+    for (const order of orders) {
+      if (ordersByStatus[order.status] !== undefined) {
+        ordersByStatus[order.status]++;
+      }
+      if (order.status === OrderStatus.DELIVERED) {
+        totalDeliveredRevenue += order.totalAmount;
+      } else if (order.status === OrderStatus.PENDING || order.status === OrderStatus.CONFIRMED) {
+        potentialRevenue += order.totalAmount;
+      }
+    }
+
+    const deliveredCount = ordersByStatus.DELIVERED;
+    const deliveredRate = totalOrders > 0 ? Math.round((deliveredCount / totalOrders) * 100) : 0;
+    const averageOrderValue = deliveredCount > 0 ? Math.round(totalDeliveredRevenue / deliveredCount) : 0;
+
+    // Ventas agrupadas por los últimos 6 meses
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthlyMap = new Map<string, { label: string; revenue: number; ordersCount: number }>();
+
+    // Inicializar últimos 6 meses
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      monthlyMap.set(key, { label, revenue: 0, ordersCount: 0 });
+    }
+
+    // Agregar pedidos entregados a los meses
+    for (const order of orders) {
+      if (order.status === OrderStatus.DELIVERED) {
+        const d = new Date(order.createdAt);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (monthlyMap.has(key)) {
+          const entry = monthlyMap.get(key)!;
+          entry.revenue += order.totalAmount;
+          entry.ordersCount++;
+        }
+      }
+    }
+
+    const salesByMonth = Array.from(monthlyMap.values());
+
+    // Top productos más vendidos (por volumen e ingresos)
+    const productStatsMap = new Map<
+      string,
+      {
+        id: string;
+        title: string;
+        images: string[];
+        unitsSold: number;
+        revenue: number;
+        currentStock: number;
+        status: ProductStatus;
+      }
+    >();
+
+    for (const order of orders) {
+      if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CONFIRMED) {
+        for (const item of order.items) {
+          const prod = item.product;
+          if (!prod) continue;
+
+          if (!productStatsMap.has(prod.id)) {
+            productStatsMap.set(prod.id, {
+              id: prod.id,
+              title: prod.title,
+              images: prod.images || [],
+              unitsSold: 0,
+              revenue: 0,
+              currentStock: prod.stock,
+              status: prod.status,
+            });
+          }
+
+          const stat = productStatsMap.get(prod.id)!;
+          stat.unitsSold += item.quantity;
+          stat.revenue += item.unitPrice * item.quantity;
+        }
+      }
+    }
+
+    const topProducts = Array.from(productStatsMap.values())
+      .sort((a, b) => b.unitsSold - a.unitsSold || b.revenue - a.revenue)
+      .slice(0, 5);
+
+    // Salud del inventario
+    const inventoryHealth = {
+      totalProducts: products.length,
+      available: products.filter((p) => p.status === ProductStatus.AVAILABLE).length,
+      soldOut: products.filter((p) => p.status === ProductStatus.SOLD_OUT).length,
+      paused: products.filter((p) => p.status === ProductStatus.PAUSED).length,
+      totalStockUnits: products.reduce((acc, p) => acc + p.stock, 0),
+    };
+
+    // Reseñas y satisfacción
+    const totalReviews = reviews.length;
+    const averageRating =
+      totalReviews > 0
+        ? Math.round((reviews.reduce((acc, r) => acc + r.rating, 0) / totalReviews) * 10) / 10
+        : 5.0;
+
+    const ratingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    for (const r of reviews) {
+      if (ratingBreakdown[r.rating as keyof typeof ratingBreakdown] !== undefined) {
+        ratingBreakdown[r.rating as keyof typeof ratingBreakdown]++;
+      }
+    }
+
+    return {
+      totalDeliveredRevenue,
+      potentialRevenue,
+      totalOrders,
+      ordersByStatus,
+      deliveredRate,
+      averageOrderValue,
+      salesByMonth,
+      topProducts,
+      inventoryHealth,
+      reviewsStats: {
+        totalReviews,
+        averageRating,
+        ratingBreakdown,
+      },
+    };
+  }
 }

@@ -114,4 +114,18 @@ export class OrdersController {
       next(error);
     }
   }
+
+  async getSellerAnalytics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const sellerId = req.user!.id;
+      const analytics = await ordersService.getSellerAnalytics(sellerId);
+
+      res.status(200).json({
+        success: true,
+        data: analytics,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
